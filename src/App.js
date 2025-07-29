@@ -283,7 +283,6 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                         setMasaNo('');
                         setCustomerName('');
                         setSessionId('');
-                        // passwordValidated state'i olmadığı için artık bunu ayarlamıyoruz
                     }
                 } catch (error) {
                     console.error("Kaydedilmiş oturum doğrulanırken hata:", error);
@@ -297,7 +296,7 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
             };
             checkSessionActive();
         }
-    }, [db, customAppId, fetchCustomerOrders]); // Bağımlılıklar güncellendi
+    }, [db, customAppId, fetchCustomerOrders]);
 
 
     // Menüyü Firebase'den çek
@@ -363,6 +362,8 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
     };
 
     const handleOrderSubmit = async () => {
+        let currentSessionId = sessionId; // Mevcut sessionId'yi kullan
+
         // Her zaman şifre doğrulaması yap
         if (!masaNo || !customerName || !password || cart.length === 0) {
             showMessage("Eksik Bilgi", "Lütfen masa numarası, adınız, şifre ve sepetinizi kontrol edin.", "error");
@@ -377,7 +378,7 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                 showMessage("Hata", "Geçersiz Masa Numarası veya Şifre. Lütfen kontrol edin.", "error");
                 return;
             }
-            const currentSessionId = passwordDocSnap.data().sessionId;
+            currentSessionId = passwordDocSnap.data().sessionId;
             if (!currentSessionId) {
                 showMessage("Hata", "Masa oturum bilgisi bulunamadı. Lütfen kasa görevlisiyle iletişime geçin.", "error");
                 return;
@@ -1398,7 +1399,7 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
     useEffect(() => {
         if (!db || !userId) return; // userId'nin tanımlı olduğundan emin ol
 
-        const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`); // Yol düzeltildi
+        const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`);
         const unsubscribeAdmin = onSnapshot(adminDocRef, (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
@@ -1415,14 +1416,14 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
         });
 
         return () => unsubscribeAdmin();
-    }, [db, userId, showMessage, customAppId]); // userId bağımlılık olarak eklendi
+    }, [db, userId, showMessage, customAppId]);
 
 
     // Admin girişi
     const handleLogin = async () => {
         if (!db) return;
         try {
-            const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`); // Yol düzeltildi
+            const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`);
             const adminDocSnap = await getDoc(adminDocRef);
 
             if (adminDocSnap.exists()) {
@@ -1490,7 +1491,7 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
             return;
         }
         try {
-            const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`); // Yol düzeltildi
+            const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`);
             await updateDoc(adminDocRef, {
                 username: adminUsername,
                 password: adminPassword
@@ -1756,7 +1757,7 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
                     {menuItems.length === 0 ? (
                         <p className="text-gray-600 text-lg text-center py-10">Henüz hiç ürün eklenmedi.</p>
                     ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {menuItems.map(item => (
                                 <div key={item.id} className="bg-white p-4 rounded-lg shadow-md flex items-center justify-between hover:shadow-xl transition-shadow duration-300">
                                     <img
