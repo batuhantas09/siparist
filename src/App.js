@@ -98,13 +98,14 @@ function App() {
 
                 // Admin kullanıcı bilgilerini kontrol et ve yoksa varsayılanı ekle
                 // Bu işlem, uygulamanın ilk kez başlatılmasında veya admin bilgilerinin silinmesi durumunda çalışır.
-                const adminDocRef = doc(db, `artifacts/${customAppId}/adminCredentials/adminUser`); // Yol düzeltildi
+                const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`); // Yol düzeltildi
                 const adminDocSnap = await getDoc(adminDocRef);
 
                 if (!adminDocSnap.exists()) {
                     await setDoc(adminDocRef, {
                         username: DEFAULT_ADMIN_USERNAME,
-                        password: DEFAULT_ADMIN_PASSWORD // Gerçek uygulamada şifre hashlenmeli
+                        password: DEFAULT_ADMIN_PASSWORD, // Gerçek uygulamada şifre hashlenmeli
+                        ownerId: auth.currentUser?.uid || 'default_owner' // Admin'in ilk oluşturanın UID'si
                     });
                     console.log("Varsayılan Admin kullanıcı bilgileri Firestore'a eklendi.");
                 }
@@ -178,26 +179,7 @@ function App() {
                 <h1 className="text-2xl font-bold text-gray-800 flex items-center">
                     <Coffee className="mr-2 text-blue-600" size={32} /> siparist
                 </h1>
-                <div className="flex space-x-4">
-                    <button
-                        onClick={() => setActivePanel('customer')}
-                        className={`px-4 py-2 rounded-md flex items-center transition-colors duration-200 ${activePanel === 'customer' ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-200 text-gray-700 hover:bg-blue-100 hover:text-blue-700'}`}
-                    >
-                        <Home className="mr-2" size={20} /> Müşteri
-                    </button>
-                    <button
-                        onClick={() => setActivePanel('cashier')}
-                        className={`px-4 py-2 rounded-md flex items-center transition-colors duration-200 ${activePanel === 'cashier' ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-200 text-gray-700 hover:bg-blue-100 hover:text-blue-700'}`}
-                    >
-                        <DollarSign className="mr-2" size={20} /> Kasa
-                    </button>
-                    <button
-                        onClick={() => setActivePanel('admin')}
-                        className={`px-4 py-2 rounded-md flex items-center transition-colors duration-200 ${activePanel === 'admin' ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-200 text-gray-700 hover:bg-blue-100 hover:text-blue-700'}`}
-                    >
-                        <Settings className="mr-2" size={20} /> Admin
-                    </button>
-                </div>
+                {/* Navbar'daki Kasa ve Admin butonları kaldırıldı */}
             </nav>
 
             {/* Panel İçerikleri */}
@@ -210,20 +192,21 @@ function App() {
             {/* Footer */}
             <footer className="bg-gray-800 text-white p-4 text-center text-sm">
                 <p>
-                    &copy; {new Date().getFullYear()} siparist. Tüm Hakları Sakh
+                    &copy; {new Date().getFullYear()} siparist. Tüm Hakları Sakl
                     <span
                         className="cursor-pointer text-blue-400 hover:text-blue-200 transition-colors duration-200"
                         onClick={() => setActivePanel('admin')}
                     >
                         ı
                     </span>
+                    d
                     <span
                         className="cursor-pointer text-blue-400 hover:text-blue-200 transition-colors duration-200"
                         onClick={() => setActivePanel('cashier')}
                     >
-                        d
+                        ı
                     </span>
-                    ır.
+                    r.
                 </p>
             </footer>
         </div>
@@ -558,7 +541,7 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                         </div>
                     </div>
                 ))
-    )}
+            )}
 
             <div className="mt-10 border-t-2 border-gray-200 pt-8">
                 <h2 className="text-3xl font-bold text-gray-800 mb-6 flex items-center">
@@ -1467,7 +1450,7 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
     useEffect(() => {
         if (!db || !loggedIn) return;
 
-        const adminDocRef = doc(db, `artifacts/${customAppId}/adminCredentials/adminUser`); // Yol düzeltildi
+        const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`); // Yol düzeltildi
         const unsubscribeAdmin = onSnapshot(adminDocRef, (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
@@ -1491,7 +1474,7 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
     const handleLogin = async () => {
         if (!db) return;
         try {
-            const adminDocRef = doc(db, `artifacts/${customAppId}/adminCredentials/adminUser`); // Yol düzeltildi
+            const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`); // Yol düzeltildi
             const adminDocSnap = await getDoc(adminDocRef);
 
             if (adminDocSnap.exists()) {
@@ -1559,7 +1542,7 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
             return;
         }
         try {
-            const adminDocRef = doc(db, `artifacts/${customAppId}/adminCredentials/adminUser`); // Yol düzeltildi
+            const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`); // Yol düzeltildi
             await updateDoc(adminDocRef, {
                 username: adminUsername,
                 password: adminPassword
