@@ -1,24 +1,20 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
-// Canvas ortamı için signInWithCustomToken tekrar eklendi
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { Home, Utensils, DollarSign, Settings, LogIn, Plus, Trash2, Check, Printer, Archive, Coffee, Table, User, Lock, ShoppingCart, Info, XCircle, CheckCircle, Bell } from 'lucide-react';
-import * as Tone from 'tone'; // Tone.js'i npm paketi olarak import et
+import * as Tone from 'tone';
 
 // Firebase yapılandırması ve uygulama kimliği: Ortama göre dinamik olarak belirlenir
 let currentFirebaseConfig;
 let currentCustomAppId;
-let currentInitialAuthToken = null; // Sadece Canvas için geçerli
+let currentInitialAuthToken = null;
 
-// Canvas ortamında mı çalışıyoruz kontrolü
 if (typeof window.__firebase_config !== 'undefined' && typeof window.__app_id !== 'undefined') {
-    // Canvas ortamı
     currentFirebaseConfig = JSON.parse(window.__firebase_config);
     currentCustomAppId = window.__app_id;
     currentInitialAuthToken = window.__initial_auth_token;
 } else {
-    // Yerel veya Vercel ortamı (Create React App)
     currentFirebaseConfig = {
         apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
         authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
@@ -29,17 +25,14 @@ if (typeof window.__firebase_config !== 'undefined' && typeof window.__app_id !=
         measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
     };
     currentCustomAppId = process.env.REACT_APP_FIREBASE_PROJECT_ID || 'default-app-id';
-    // initialAuthToken bu ortamda kullanılmaz, null kalır
 }
 
 const firebaseConfig = currentFirebaseConfig;
 const customAppId = currentCustomAppId;
-const initialAuthToken = initialAuthToken; // Sadece Canvas için geçerli
+const initialAuthToken = initialAuthToken;
 
-// Firebase uygulaması ve servisleri
 let app, db, auth;
 
-// Rastgele içecek isimleri listesi (şifre üretimi için)
 const randomDrinkNames = [
     "latte", "mocha", "espresso", "americano", "cappuccino",
     "turkkahvesi", "sutlu", "filtrekahve", "cay", "nane", "limonata",
@@ -48,29 +41,25 @@ const randomDrinkNames = [
     "su", "madensuyu", "limon", "cilek", "muz", "sogukcay"
 ];
 
-// Admin kullanıcı adı ve şifresi (hardcoded - sadece ilk kurulum için kullanılır)
 const DEFAULT_ADMIN_USERNAME = 'admin';
 const DEFAULT_ADMIN_PASSWORD = 'siparist2025';
 
 function App() {
-    const [activePanel, setActivePanel] = useState('customer'); // customer, cashier, admin
+    const [activePanel, setActivePanel] = useState('customer');
     const [isAuthReady, setIsAuthReady] = useState(false);
     const [userId, setUserId] = useState(null);
     const [firebaseInitialized, setFirebaseInitialized] = useState(false);
     const [showModal, setShowModal] = useState(false);
     const [modalContent, setModalContent] = useState({ title: '', message: '', type: 'info' });
 
-    // Modalı göstermek için yardımcı fonksiyon
     const showMessage = useCallback((title, message, type = 'info') => {
         setModalContent({ title, message, type });
         setShowModal(true);
     }, []);
 
-    // Firebase başlatma ve Admin kullanıcı kontrolü
     useEffect(() => {
         const initializeFirebase = async () => {
             try {
-                // Firebase henüz başlatılmadıysa başlat
                 if (!app) {
                     app = initializeApp(firebaseConfig);
                     db = getFirestore(app);
@@ -78,27 +67,20 @@ function App() {
                     setFirebaseInitialized(true);
                 }
 
-                // Kimlik doğrulama dinleyicisi
                 const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         setUserId(user.uid);
                     } else {
-                        // Eğer initialAuthToken varsa, custom token ile giriş yap (Sadece Canvas için)
                         if (initialAuthToken) {
                             await signInWithCustomToken(auth, initialAuthToken);
                         } else {
-                            // Diğer durumlarda (local/Vercel) anonim olarak giriş yap
                             await signInAnonymously(auth);
                         }
-                        // Anonim giriş sonrası veya custom token sonrası UID'yi al
                         setUserId(auth.currentUser?.uid || crypto.randomUUID());
                     }
                     setIsAuthReady(true);
                 });
 
-                // Admin kullanıcı bilgilerini kontrol et ve yoksa varsayılanı ekle
-                // Bu işlem, uygulamanın ilk kez başlatılmasında veya admin bilgilerinin silinmesi durumunda çalışır.
-                // userId'nin tanımlı olduğundan emin ol
                 if (auth.currentUser?.uid) {
                     const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`);
                     const adminDocSnap = await getDoc(adminDocRef);
@@ -106,23 +88,18 @@ function App() {
                     if (!adminDocSnap.exists()) {
                         await setDoc(adminDocRef, {
                             username: DEFAULT_ADMIN_USERNAME,
-                            password: DEFAULT_ADMIN_PASSWORD, // Gerçek uygulamada şifre hashlenmeli
-                            ownerId: auth.currentUser.uid // Admin'in ilk oluşturanın UID'si
+                            password: DEFAULT_ADMIN_PASSWORD,
+                            ownerId: auth.currentUser.uid
                         });
                         console.log("Varsayılan Admin kullanıcı bilgileri Firestore'a eklendi.");
                     }
                 }
 
-
-                // Tone.js ses bağlamını kullanıcı etkileşimiyle başlat
-                // Bu event listener'lar, kullanıcı sayfayla ilk kez etkileşime girdiğinde Tone.js'i başlatır.
-                // Bu, tarayıcıların otomatik ses çalma kısıtlamalarını aşmak için gereklidir.
                 document.documentElement.addEventListener('mousedown', Tone.start);
                 document.documentElement.addEventListener('touchstart', Tone.start);
 
                 return () => {
                     unsubscribeAuth();
-                    // Event listener'ları temizle
                     document.documentElement.removeEventListener('mousedown', Tone.start);
                     document.documentElement.removeEventListener('touchstart', Tone.start);
                 };
@@ -136,7 +113,7 @@ function App() {
         if (!firebaseInitialized) {
             initializeFirebase();
         }
-    }, [firebaseInitialized, showMessage]); // initialAuthToken bağımlılıklardan kaldırıldı
+    }, [firebaseInitialized, showMessage]);
 
     if (!isAuthReady) {
         return (
@@ -182,7 +159,15 @@ function App() {
                 <h1 className="text-2xl font-bold text-gray-800 flex items-center">
                     <Coffee className="mr-2 text-blue-600" size={32} /> siparist
                 </h1>
-                {/* Navbar'daki Kasa ve Admin butonları kaldırıldı */}
+                <div className="flex space-x-4">
+                    <button
+                        onClick={() => setActivePanel('customer')}
+                        className={`px-4 py-2 rounded-md flex items-center transition-colors duration-200 ${activePanel === 'customer' ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-200 text-gray-700 hover:bg-blue-100 hover:text-blue-700'}`}
+                    >
+                        <Home className="mr-2" size={20} /> Müşteri
+                    </button>
+                    {/* Üstteki Kasa ve Admin butonları kaldırıldı */}
+                </div>
             </nav>
 
             {/* Panel İçerikleri */}
@@ -222,18 +207,17 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
     const [cart, setCart] = useState([]);
     const [masaNo, setMasaNo] = useState(localStorage.getItem('siparist_masaNo') || '');
     const [customerName, setCustomerName] = useState(localStorage.getItem('siparist_customerName') || '');
-    const [password, setPassword] = useState(''); // Şifre yerel depolamada tutulmaz, sadece doğrulamak için kullanılır
+    const [password, setPassword] = useState('');
     const [sessionId, setSessionId] = useState(localStorage.getItem('siparist_sessionId') || '');
     const [showOrderForm, setShowOrderForm] = useState(false);
     const [showBillRequestForm, setShowBillRequestForm] = useState(false);
     const [loading, setLoading] = useState(true);
     const [customerOrders, setCustomerOrders] = useState([]);
-    // passwordValidated state'i artık kullanılmıyor, her zaman şifre doğrulaması yapılacak
 
     // Müşterinin siparişlerini çek (hesap isteği için)
     const fetchCustomerOrders = useCallback(async (tableNum, custName, currentSessionID) => {
         if (!db || !tableNum || !custName || !currentSessionID) {
-            setCustomerOrders([]); // Clear orders if not all info is present
+            setCustomerOrders([]);
             return;
         }
         try {
@@ -241,7 +225,7 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
             const q = query(ordersRef, 
                 where("masaNo", "==", tableNum), 
                 where("customerName", "==", custName),
-                where("sessionId", "==", currentSessionID) // Filter by sessionId
+                where("sessionId", "==", currentSessionID)
             );
             const snapshot = await getDocs(q);
             const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -253,45 +237,45 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
     }, [db, showMessage, customAppId]);
 
     // Kaydedilmiş oturum bilgilerini doğrula ve form alanlarını otomatik doldur
-    // Bu useEffect, artık passwordValidated state'ini kontrol etmiyor, sadece localStorage'dan bilgileri yüklüyor
-    // ve form alanlarını dolduruyor. Şifre doğrulaması her submit işleminde yapılacak.
     useEffect(() => {
         const storedMasaNo = localStorage.getItem('siparist_masaNo');
         const storedCustomerName = localStorage.getItem('siparist_customerName');
         const storedSessionId = localStorage.getItem('siparist_sessionId');
 
-        if (storedMasaNo) setMasaNo(storedMasaNo);
+        if (storedMasaNo) {
+            setMasaNo(storedMasaNo);
+            setPassword(localStorage.getItem(`siparist_password_${storedMasaNo}`) || '');
+        }
         if (storedCustomerName) setCustomerName(storedCustomerName);
         if (storedSessionId) setSessionId(storedSessionId);
 
-        // Eğer localStorage'da geçerli bir oturum bilgisi varsa, siparişleri otomatik çek
-        // Şifre doğrulaması burada yapılmıyor, sadece bilgilerin varlığı kontrol ediliyor
         if (db && storedMasaNo && storedCustomerName && storedSessionId) {
-            // Firestore'dan şifrenin hala aktif olup olmadığını kontrol et
             const checkSessionActive = async () => {
                 try {
                     const passwordDocRef = doc(db, `artifacts/${customAppId}/public/data/passwords`, storedMasaNo);
                     const passwordDocSnap = await getDoc(passwordDocRef);
                     if (passwordDocSnap.exists() && passwordDocSnap.data().sessionId === storedSessionId && passwordDocSnap.data().isActive) {
-                        // Oturum hala aktifse, siparişleri getir
                         fetchCustomerOrders(storedMasaNo, storedCustomerName, storedSessionId);
                     } else {
-                        // Oturum aktif değilse veya bilgiler eşleşmiyorsa, localStorage'ı temizle
                         localStorage.removeItem('siparist_masaNo');
                         localStorage.removeItem('siparist_customerName');
                         localStorage.removeItem('siparist_sessionId');
+                        localStorage.removeItem(`siparist_password_${storedMasaNo}`);
                         setMasaNo('');
                         setCustomerName('');
                         setSessionId('');
+                        setPassword('');
                     }
                 } catch (error) {
                     console.error("Kaydedilmiş oturum doğrulanırken hata:", error);
                     localStorage.removeItem('siparist_masaNo');
                     localStorage.removeItem('siparist_customerName');
                     localStorage.removeItem('siparist_sessionId');
+                    localStorage.removeItem(`siparist_password_${storedMasaNo}`);
                     setMasaNo('');
                     setCustomerName('');
                     setSessionId('');
+                    setPassword('');
                 }
             };
             checkSessionActive();
@@ -306,7 +290,6 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
         const menuRef = collection(db, `artifacts/${customAppId}/public/data/menu`);
         const unsubscribe = onSnapshot(menuRef, (snapshot) => {
             const menuData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            // Kategorilere göre grupla
             const groupedMenu = menuData.reduce((acc, item) => {
                 const category = item.category || 'Diğer';
                 if (!acc[category]) {
@@ -362,8 +345,6 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
     };
 
     const handleOrderSubmit = async () => {
-        let currentSessionId = sessionId; // Mevcut sessionId'yi kullan
-
         // Her zaman şifre doğrulaması yap
         if (!masaNo || !customerName || !password || cart.length === 0) {
             showMessage("Eksik Bilgi", "Lütfen masa numarası, adınız, şifre ve sepetinizi kontrol edin.", "error");
@@ -378,8 +359,8 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                 showMessage("Hata", "Geçersiz Masa Numarası veya Şifre. Lütfen kontrol edin.", "error");
                 return;
             }
-            currentSessionId = passwordDocSnap.data().sessionId;
-            if (!currentSessionId) {
+            const sessionId = passwordDocSnap.data().sessionId;
+            if (!sessionId) {
                 showMessage("Hata", "Masa oturum bilgisi bulunamadı. Lütfen kasa görevlisiyle iletişime geçin.", "error");
                 return;
             }
@@ -387,14 +368,14 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
             // Şifre doğrulandı, bilgileri yerel depolamaya kaydet
             localStorage.setItem('siparist_masaNo', masaNo);
             localStorage.setItem('siparist_customerName', customerName);
-            localStorage.setItem('siparist_sessionId', currentSessionId);
-            setSessionId(currentSessionId); // State'i de güncelle
+            localStorage.setItem('siparist_sessionId', sessionId);
+            localStorage.setItem(`siparist_password_${masaNo}`, password); // Şifreyi de kaydet
 
             // Siparişi kaydet
             await addDoc(collection(db, `artifacts/${customAppId}/public/data/orders`), {
                 masaNo,
                 customerName,
-                sessionId: currentSessionId, // Doğrulanmış sessionId'yi kullan
+                sessionId: sessionId, // Doğrulanmış sessionId'yi kullan
                 items: cart.map(item => ({
                     id: item.id,
                     name: item.name,
@@ -418,8 +399,6 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
     };
 
     const handleBillRequestSubmit = async () => {
-        let currentSessionId = sessionId; // Mevcut sessionId'yi kullan
-
         // Her zaman şifre doğrulaması yap
         if (!masaNo || !customerName || !password) {
             showMessage("Eksik Bilgi", "Lütfen masa numarası, adınız ve şifrenizi girin.", "error");
@@ -434,8 +413,8 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                 showMessage("Hata", "Geçersiz Masa Numarası veya Şifre. Lütfen kontrol edin.", "error");
                 return;
             }
-            currentSessionId = passwordDocSnap.data().sessionId;
-            if (!currentSessionId) {
+            const sessionId = passwordDocSnap.data().sessionId;
+            if (!sessionId) {
                 showMessage("Hata", "Masa oturum bilgisi bulunamadı. Lütfen kasa görevlisiyle iletişime geçin.", "error");
                 return;
             }
@@ -443,14 +422,14 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
             // Şifre doğrulandı, bilgileri yerel depolamaya kaydet
             localStorage.setItem('siparist_masaNo', masaNo);
             localStorage.setItem('siparist_customerName', customerName);
-            localStorage.setItem('siparist_sessionId', currentSessionId);
-            setSessionId(currentSessionId); // State'i de güncelle
+            localStorage.setItem('siparist_sessionId', sessionId);
+            localStorage.setItem(`siparist_password_${masaNo}`, password); // Şifreyi de kaydet
 
             // Hesap isteğini kaydet
             await addDoc(collection(db, `artifacts/${customAppId}/public/data/billRequests`), {
                 masaNo,
                 customerName,
-                sessionId: currentSessionId, // Doğrulanmış sessionId'yi kullan
+                sessionId: sessionId, // Doğrulanmış sessionId'yi kullan
                 requestDate: new Date().toISOString(),
                 status: 'pending', // pending, completed
             });
@@ -482,9 +461,9 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                 <button
                     onClick={() => {
                         setShowBillRequestForm(true);
-                        // Eğer zaten doğrulanmış bir oturum varsa, siparişleri otomatik çek
-                        if (masaNo && customerName && sessionId) { // passwordValidated yerine localStorage'dan gelen bilgileri kontrol et
-                            fetchCustomerOrders(masaNo, customerName, sessionId);
+                        // Eğer localStorage'da bilgiler varsa, otomatik doldur ve siparişleri çek
+                        if (localStorage.getItem('siparist_masaNo') && localStorage.getItem('siparist_customerName') && localStorage.getItem('siparist_sessionId')) {
+                            fetchCustomerOrders(localStorage.getItem('siparist_masaNo'), localStorage.getItem('siparist_customerName'), localStorage.getItem('siparist_sessionId'));
                         }
                     }}
                     className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-3 rounded-full font-semibold transition-colors duration-200 shadow-lg hover:shadow-xl flex items-center text-lg"
@@ -503,7 +482,7 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                 Object.keys(menu).map(category => (
                     <div key={category} className="mb-8">
                         <h3 className="text-2xl font-semibold text-gray-700 mb-4 border-b-2 border-blue-200 pb-2 flex items-center">
-                            <Coffee className="mr-2 text-blue-500" /> {category}
+                            <Coffee className="mr-2" size={20} /> {category}
                         </h3>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                             {menu[category].map(item => (
@@ -538,7 +517,7 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
 
             <div className="mt-10 border-t-2 border-gray-200 pt-8">
                 <h2 className="text-3xl font-bold text-gray-800 mb-6 flex items-center">
-                    <ShoppingCart className="mr-3 text-blue-600" size={30} /> Sepetiniz
+                    <ShoppingCart className="mr-3" size={30} /> Sepetiniz
                 </h2>
                 {cart.length === 0 ? (
                     <p className="text-gray-600 text-lg text-center py-10">Sepetiniz boş.</p>
@@ -561,7 +540,7 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                                             placeholder="Özel not (örn: az şekerli)"
                                             value={item.note}
                                             onChange={(e) => updateCartItemNote(item.id, e.target.value)}
-                                            className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                                            className="w-full p-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
                                         />
                                     </div>
                                     <div className="flex items-center ml-4">
@@ -615,12 +594,12 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                                     placeholder="Adınızı girin"
                                 />
                             </div>
-                            <div> {/* Şifre alanı her zaman görünür, otomatik doldurulur */}
+                            <div>
                                 <label htmlFor="passwordOrder" className="block text-gray-700 text-sm font-semibold mb-2">Masa Şifresi</label>
                                 <input
                                     type="text"
                                     id="passwordOrder"
-                                    value={password} // Şifre otomatik doldurulacak, gerekirse değiştirilebilir
+                                    value={password}
                                     onChange={(e) => setPassword(e.target.value)}
                                     className="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                                     placeholder="Masa şifrenizi girin (örn: 36soda55)"
@@ -676,12 +655,12 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                                     className="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                                 />
                             </div>
-                            <div> {/* Şifre alanı her zaman görünür, otomatik doldurulur */}
+                            <div>
                                 <label htmlFor="passwordBill" className="block text-gray-700 text-sm font-semibold mb-2">Masa Şifresi</label>
                                 <input
                                     type="text"
                                     id="passwordBill"
-                                    value={password} // Şifre otomatik doldurulacak, gerekirse değiştirilebilir
+                                    value={password}
                                     onChange={(e) => setPassword(e.target.value)}
                                     className="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                                     placeholder="Masa şifrenizi girin"
@@ -886,8 +865,7 @@ function CashierPanel({ db, userId, showMessage, customAppId }) {
 
         const setupDailyReset = () => {
             const now = new Date();
-            // eslint-disable-next-line no-unused-vars
-            const lastResetDate = localStorage.getItem('lastResetDate'); // Bu değişken kullanılıyor, ESLint uyarısı için devre dışı bırakıldı
+            const lastResetDate = localStorage.getItem('lastResetDate'); // eslint-disable-line no-unused-vars
             const today = now.toISOString().split('T')[0]; // YYYY-MM-DD
 
             // Calculate time until next 05:00 AM
@@ -1028,6 +1006,12 @@ function CashierPanel({ db, userId, showMessage, customAppId }) {
 
             await batch.commit();
             showMessage("Hesap Ödendi", `Masa ${request.masaNo} için hesap ödendi ve siparişler tamamlandı.`, "success");
+            
+            // Hesap ödendiğinde müşterinin localStorage'daki oturum bilgilerini temizle
+            localStorage.removeItem('siparist_masaNo');
+            localStorage.removeItem('siparist_customerName');
+            localStorage.removeItem('siparist_sessionId');
+            localStorage.removeItem(`siparist_password_${request.masaNo}`); // Kaydedilen şifreyi de temizle
         } catch (error) {
             console.error("Hesap isteği tamamlanırken hata oluştu:", error);
             showMessage("Hata", "Hesap isteği tamamlanırken bir sorun oluştu. Lütfen tekrar deneyin.", "error");
@@ -1652,7 +1636,7 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
             {activeTab === 'menu' && (
                 <div>
                     <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center">
-                        <Utensils className="mr-2 text-blue-600" /> Ürün Yönetimi
+                        <Utensils className="mr-2" size={20} /> Ürün Yönetimi
                     </h3>
                     <div className="bg-blue-50 p-6 rounded-lg shadow-inner mb-6">
                         <h4 className="text-xl font-semibold text-gray-800 mb-4">{editingItem ? 'Ürün Düzenle' : 'Yeni Ürün Ekle'}</h4>
@@ -1750,7 +1734,7 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
                     </div>
 
                     <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center">
-                        <Utensils className="mr-2 text-blue-600" /> Mevcut Ürünler
+                        <Utensils className="mr-2" size={20} /> Mevcut Ürünler
                     </h3>
                     {menuItems.length === 0 ? (
                         <p className="text-gray-600 text-lg text-center py-10">Henüz hiç ürün eklenmedi.</p>
