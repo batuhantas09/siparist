@@ -6,16 +6,19 @@ import { Home, Utensils, DollarSign, Settings, LogIn, Plus, Trash2, Check, Print
 import * as Tone from 'tone';
 
 // Firebase yapılandırması ve uygulama kimliği: Ortama göre dinamik olarak belirlenir
-let currentFirebaseConfig;
-let currentCustomAppId;
-let currentInitialAuthToken = null;
+let firebaseConfig;
+let customAppId;
+let initialAuthToken = null;
 
+// Canvas ortamında mı çalışıyoruz kontrolü
 if (typeof window.__firebase_config !== 'undefined' && typeof window.__app_id !== 'undefined') {
-    currentFirebaseConfig = JSON.parse(window.__firebase_config);
-    currentCustomAppId = window.__app_id;
-    currentInitialAuthToken = window.__initial_auth_token;
+    // Canvas ortamı
+    firebaseConfig = JSON.parse(window.__firebase_config);
+    customAppId = window.__app_id;
+    initialAuthToken = window.__initial_auth_token;
 } else {
-    currentFirebaseConfig = {
+    // Yerel veya Vercel ortamı (Create React App)
+    firebaseConfig = {
         apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
         authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
         projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
@@ -24,12 +27,9 @@ if (typeof window.__firebase_config !== 'undefined' && typeof window.__app_id !=
         appId: process.env.REACT_APP_FIREBASE_APP_ID,
         measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
     };
-    currentCustomAppId = process.env.REACT_APP_FIREBASE_PROJECT_ID || 'default-app-id';
+    customAppId = process.env.REACT_APP_FIREBASE_PROJECT_ID || 'default-app-id';
+    // initialAuthToken bu ortamda kullanılmaz, null kalır
 }
-
-const firebaseConfig = currentFirebaseConfig;
-const customAppId = currentCustomAppId;
-const initialAuthToken = initialAuthToken;
 
 let app, db, auth;
 
@@ -241,22 +241,23 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
         const storedMasaNo = localStorage.getItem('siparist_masaNo');
         const storedCustomerName = localStorage.getItem('siparist_customerName');
         const storedSessionId = localStorage.getItem('siparist_sessionId');
+        const storedPassword = localStorage.getItem(`siparist_password_${storedMasaNo}`); // Kaydedilen şifreyi al
 
-        if (storedMasaNo) {
-            setMasaNo(storedMasaNo);
-            setPassword(localStorage.getItem(`siparist_password_${storedMasaNo}`) || '');
-        }
+        if (storedMasaNo) setMasaNo(storedMasaNo);
         if (storedCustomerName) setCustomerName(storedCustomerName);
         if (storedSessionId) setSessionId(storedSessionId);
+        if (storedPassword) setPassword(storedPassword); // Şifreyi de otomatik doldur
 
-        if (db && storedMasaNo && storedCustomerName && storedSessionId) {
+        // Eğer localStorage'da geçerli bir oturum bilgisi varsa, siparişleri otomatik çek
+        if (db && storedMasaNo && storedCustomerName && storedSessionId && storedPassword) {
             const checkSessionActive = async () => {
                 try {
                     const passwordDocRef = doc(db, `artifacts/${customAppId}/public/data/passwords`, storedMasaNo);
                     const passwordDocSnap = await getDoc(passwordDocRef);
-                    if (passwordDocSnap.exists() && passwordDocSnap.data().sessionId === storedSessionId && passwordDocSnap.data().isActive) {
+                    if (passwordDocSnap.exists() && passwordDocSnap.data().sessionId === storedSessionId && passwordDocSnap.data().isActive && passwordDocSnap.data().password === storedPassword) {
                         fetchCustomerOrders(storedMasaNo, storedCustomerName, storedSessionId);
                     } else {
+                        // Oturum aktif değilse veya bilgiler eşleşmiyorsa, localStorage'ı temizle
                         localStorage.removeItem('siparist_masaNo');
                         localStorage.removeItem('siparist_customerName');
                         localStorage.removeItem('siparist_sessionId');
@@ -345,6 +346,8 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
     };
 
     const handleOrderSubmit = async () => {
+        let currentSessionId = sessionId;
+
         // Her zaman şifre doğrulaması yap
         if (!masaNo || !customerName || !password || cart.length === 0) {
             showMessage("Eksik Bilgi", "Lütfen masa numarası, adınız, şifre ve sepetinizi kontrol edin.", "error");
@@ -359,8 +362,8 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                 showMessage("Hata", "Geçersiz Masa Numarası veya Şifre. Lütfen kontrol edin.", "error");
                 return;
             }
-            const sessionId = passwordDocSnap.data().sessionId;
-            if (!sessionId) {
+            currentSessionId = passwordDocSnap.data().sessionId;
+            if (!currentSessionId) {
                 showMessage("Hata", "Masa oturum bilgisi bulunamadı. Lütfen kasa görevlisiyle iletişime geçin.", "error");
                 return;
             }
@@ -368,14 +371,15 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
             // Şifre doğrulandı, bilgileri yerel depolamaya kaydet
             localStorage.setItem('siparist_masaNo', masaNo);
             localStorage.setItem('siparist_customerName', customerName);
-            localStorage.setItem('siparist_sessionId', sessionId);
+            localStorage.setItem('siparist_sessionId', currentSessionId);
             localStorage.setItem(`siparist_password_${masaNo}`, password); // Şifreyi de kaydet
+            setSessionId(currentSessionId);
 
             // Siparişi kaydet
             await addDoc(collection(db, `artifacts/${customAppId}/public/data/orders`), {
                 masaNo,
                 customerName,
-                sessionId: sessionId, // Doğrulanmış sessionId'yi kullan
+                sessionId: currentSessionId,
                 items: cart.map(item => ({
                     id: item.id,
                     name: item.name,
@@ -384,13 +388,13 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                     note: item.note,
                 })),
                 total: parseFloat(calculateTotal()),
-                status: 'pending', // pending, delivered, paid
+                status: 'pending',
                 orderDate: new Date().toISOString(),
             });
 
             showMessage("Siparişiniz Alındı", "Siparişiniz başarıyla alındı. Teşekkür ederiz!", "success");
             setCart([]);
-            setPassword(''); // Şifreyi sadece inputtan temizle
+            setPassword('');
             setShowOrderForm(false);
         } catch (error) {
             console.error("Sipariş gönderilirken hata oluştu:", error);
@@ -399,6 +403,8 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
     };
 
     const handleBillRequestSubmit = async () => {
+        let currentSessionId = sessionId;
+
         // Her zaman şifre doğrulaması yap
         if (!masaNo || !customerName || !password) {
             showMessage("Eksik Bilgi", "Lütfen masa numarası, adınız ve şifrenizi girin.", "error");
@@ -413,8 +419,8 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                 showMessage("Hata", "Geçersiz Masa Numarası veya Şifre. Lütfen kontrol edin.", "error");
                 return;
             }
-            const sessionId = passwordDocSnap.data().sessionId;
-            if (!sessionId) {
+            currentSessionId = passwordDocSnap.data().sessionId;
+            if (!currentSessionId) {
                 showMessage("Hata", "Masa oturum bilgisi bulunamadı. Lütfen kasa görevlisiyle iletişime geçin.", "error");
                 return;
             }
@@ -422,20 +428,20 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
             // Şifre doğrulandı, bilgileri yerel depolamaya kaydet
             localStorage.setItem('siparist_masaNo', masaNo);
             localStorage.setItem('siparist_customerName', customerName);
-            localStorage.setItem('siparist_sessionId', sessionId);
+            localStorage.setItem('siparist_sessionId', currentSessionId);
             localStorage.setItem(`siparist_password_${masaNo}`, password); // Şifreyi de kaydet
 
             // Hesap isteğini kaydet
             await addDoc(collection(db, `artifacts/${customAppId}/public/data/billRequests`), {
                 masaNo,
                 customerName,
-                sessionId: sessionId, // Doğrulanmış sessionId'yi kullan
+                sessionId: currentSessionId,
                 requestDate: new Date().toISOString(),
-                status: 'pending', // pending, completed
+                status: 'pending',
             });
 
             showMessage("Hesap İsteğiniz Alındı", "Hesap isteğiniz başarıyla gönderildi. Garsonumuz kısa süre içinde masanıza gelecektir.", "success");
-            setCart([]); // Hesap istendikten sonra sepeti boşalt
+            setCart([]);
             setShowBillRequestForm(false);
         } catch (error) {
             console.error("Hesap isteği gönderilirken hata oluştu:", error);
@@ -457,7 +463,7 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
     return (
         <div className="container mx-auto p-4 bg-white rounded-lg shadow-lg">
             {/* Hesap İste Butonu - Her zaman görünür */}
-            <div className="fixed top-20 right-6 z-30"> {/* Navbar'ın altına ve sağ üste sabitle */}
+            <div className="fixed top-20 right-6 z-30">
                 <button
                     onClick={() => {
                         setShowBillRequestForm(true);
@@ -1063,7 +1069,7 @@ function CashierPanel({ db, userId, showMessage, customAppId }) {
                     <div key={order.id} className="bg-white rounded-lg shadow-md p-6 flex flex-col justify-between hover:shadow-xl transition-shadow duration-300">
                         <div>
                             <h4 className="text-xl font-bold text-gray-800 mb-2 flex items-center">
-                                <Table className="mr-2 text-blue-500" /> Masa No: {order.masaNo} - <User className="ml-3 mr-2 text-blue-500" /> {order.customerName}
+                                <Table className="mr-2" size={20} /> Masa No: {order.masaNo} - <User className="ml-3 mr-2" size={20} /> {order.customerName}
                             </h4>
                             <p className="text-gray-600 text-sm mb-3">Sipariş Tarihi: {new Date(order.orderDate).toLocaleString('tr-TR')}</p>
                             <ul className="list-disc list-inside text-gray-700 mb-4 space-y-1">
@@ -1163,7 +1169,7 @@ function CashierPanel({ db, userId, showMessage, customAppId }) {
         return (
             <div className="container mx-auto p-8 bg-white rounded-lg shadow-lg max-w-md mt-10">
                 <h2 className="text-3xl font-bold text-gray-800 mb-6 text-center flex items-center justify-center">
-                    <LogIn className="mr-3 text-blue-600" size={30} /> Kasa Girişi
+                    <LogIn className="mr-3" size={30} /> Kasa Girişi
                 </h2>
                 <div className="space-y-4">
                     <div>
@@ -1202,7 +1208,7 @@ function CashierPanel({ db, userId, showMessage, customAppId }) {
     return (
         <div className="container mx-auto p-4 bg-white rounded-lg shadow-lg">
             <h2 className="text-3xl font-bold text-gray-800 mb-6 flex items-center">
-                <DollarSign className="mr-3 text-blue-600" size={30} /> Kasa Paneli
+                <DollarSign className="mr-3" size={30} /> Kasa Paneli
             </h2>
 
             <div className="mb-6 flex space-x-2 border-b border-gray-200 pb-2 overflow-x-auto">
@@ -1276,7 +1282,7 @@ function CashierPanel({ db, userId, showMessage, customAppId }) {
             {activeTab === 'passwords' && (
                 <div className="mt-6">
                     <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center">
-                        <Lock className="mr-2 text-blue-600" /> Aktif Masa Şifreleri
+                        <Lock className="mr-2" size={20} /> Aktif Masa Şifreleri
                     </h3>
                     {activePasswords.length === 0 ? (
                         <p className="text-gray-600 text-lg col-span-full text-center py-10">Aktif masa şifresi bulunmamaktadır.</p>
@@ -1285,7 +1291,7 @@ function CashierPanel({ db, userId, showMessage, customAppId }) {
                             {activePasswords.map(pw => (
                                 <div key={pw.id} className="bg-white rounded-lg shadow-md p-6 flex flex-col justify-between hover:shadow-xl transition-shadow duration-300">
                                     <h4 className="text-xl font-bold text-gray-800 mb-2 flex items-center">
-                                        <Table className="mr-2 text-blue-500" /> Masa No: {pw.masaNo}
+                                        <Table className="mr-2" size={20} /> Masa No: {pw.masaNo}
                                     </h4>
                                     <p className="font-mono text-lg text-purple-800 break-words">Şifre: {pw.password}</p>
                                     <p className="text-sm text-gray-600 mt-2">Oluşturulma: {new Date(pw.createdAt).toLocaleString('tr-TR')}</p>
@@ -1300,7 +1306,7 @@ function CashierPanel({ db, userId, showMessage, customAppId }) {
             {activeTab === 'billRequests' && (
                 <div className="mt-6">
                     <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center">
-                        <Bell className="mr-2 text-blue-600" /> Hesap İstekleri
+                        <Bell className="mr-2" size={20} /> Hesap İstekleri
                     </h3>
                     {billRequests.length === 0 ? (
                         <p className="text-gray-600 text-lg col-span-full text-center py-10">Bekleyen hesap isteği bulunmamaktadır.</p>
@@ -1310,7 +1316,7 @@ function CashierPanel({ db, userId, showMessage, customAppId }) {
                                 <div key={request.id} className="bg-yellow-50 rounded-lg shadow-md p-6 flex flex-col justify-between hover:shadow-xl transition-shadow duration-300 border-l-4 border-yellow-500">
                                     <div>
                                         <h4 className="text-xl font-bold text-gray-800 mb-2 flex items-center">
-                                            <Table className="mr-2 text-yellow-700" /> Masa No: {request.masaNo} - <User className="ml-3 mr-2 text-yellow-700" /> {request.customerName}
+                                            <Table className="mr-2" size={20} /> Masa No: {request.masaNo} - <User className="ml-3 mr-2" size={20} /> {request.customerName}
                                         </h4>
                                         <p className="text-gray-600 text-sm mb-3">İstek Tarihi: {new Date(request.requestDate).toLocaleString('tr-TR')}</p>
                                         <p className="text-lg font-semibold text-yellow-800">Durum: Beklemede</p>
@@ -1333,7 +1339,7 @@ function CashierPanel({ db, userId, showMessage, customAppId }) {
             {activeTab === 'archive' && (
                 <div className="mt-6">
                     <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center">
-                        <Archive className="mr-2 text-blue-600" /> Arşivlenmiş Siparişler
+                        <Archive className="mr-2" size={20} /> Arşivlenmiş Siparişler
                     </h3>
                     <div className="mb-4 flex items-center space-x-3">
                         <label htmlFor="archiveDate" className="text-gray-700 font-semibold">Tarih Seç:</label>
@@ -1532,10 +1538,9 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
             await deleteDoc(doc(db, `artifacts/${customAppId}/public/data/menu`, itemId));
             showMessage("Başarılı", "Ürün silindi.", "success");
         } catch (error) {
-            console.error("Ürün silinirken hata oluştu:", error);
-            showMessage("Hata", "Ürün silinirken bir sorun oluştu.", "error");
-        }
-    };
+                showMessage("Hata", "Ürün silinirken bir sorun oluştu.", "error");
+            }
+        };
 
     // Kasa kullanıcı işlemleri
     const handleAddOrUpdateCashier = async () => {
@@ -1576,7 +1581,7 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
         return (
             <div className="container mx-auto p-8 bg-white rounded-lg shadow-lg max-w-md mt-10">
                 <h2 className="text-3xl font-bold text-gray-800 mb-6 text-center flex items-center justify-center">
-                    <LogIn className="mr-3 text-blue-600" size={30} /> Admin Girişi
+                    <LogIn className="mr-3" size={30} /> Admin Girişi
                 </h2>
                 <div className="space-y-4">
                     <div>
@@ -1615,7 +1620,7 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
     return (
         <div className="container mx-auto p-4 bg-white rounded-lg shadow-lg">
             <h2 className="text-3xl font-bold text-gray-800 mb-6 flex items-center">
-                <Settings className="mr-3 text-blue-600" size={30} /> Admin Paneli
+                <Settings className="mr-3" size={30} /> Admin Paneli
             </h2>
 
             <div className="mb-6 flex space-x-2 border-b border-gray-200 pb-2 overflow-x-auto">
@@ -1741,7 +1746,7 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {menuItems.map(item => (
-                                <div key={item.id} className="bg-white p-4 rounded-lg shadow-md flex items-center justify-between hover:shadow-xl transition-shadow duration-300">
+                                <div key={item.id} className="bg-white p-4 rounded-lg shadow-md flex flex-col justify-between hover:shadow-xl transition-shadow duration-300">
                                     <img
                                         src={item.imageUrl || `https://placehold.co/400x250/a8dadc/1d3557?text=${item.name.replace(/\s/g, '+')}`}
                                         alt={item.name}
@@ -1782,7 +1787,7 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
             {activeTab === 'cashierUsers' && (
                 <div>
                     <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center">
-                        <User className="mr-2 text-blue-600" /> Kasa Kullanıcıları Yönetimi
+                        <User className="mr-2" size={18} /> Kasa Kullanıcıları Yönetimi
                     </h3>
                     <div className="bg-blue-50 p-6 rounded-lg shadow-inner mb-6">
                         <h4 className="text-xl font-semibold text-gray-800 mb-4">Kasa Giriş Bilgilerini Güncelle</h4>
@@ -1850,7 +1855,7 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
                                                 setNewCashier({ username: user.username, password: user.password });
                                             }}
                                             className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded-md transition-colors duration-200 shadow-sm"
-                                >
+                                        >
                                             Düzenle
                                         </button>
                                         <button
@@ -1866,7 +1871,7 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
                     )}
                     <div className="mt-8 border-t-2 border-gray-200 pt-6">
                         <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center">
-                            <Lock className="mr-2 text-blue-600" /> Admin Giriş Bilgileri
+                            <Lock className="mr-2" size={20} /> Admin Giriş Bilgileri
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                             <div>
