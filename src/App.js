@@ -661,7 +661,6 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                                         // fetchCustomerOrders(e.target.value, customerName, sessionId); // sessionId'nin de güncel olduğundan emin ol
                                     }}
                                     className="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                                    placeholder="Masa numaranızı girin"
                                 />
                             </div>
                             <div>
@@ -675,7 +674,6 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                                         // fetchCustomerOrders(masaNo, e.target.value, sessionId); // sessionId'nin de güncel olduğundan emin ol
                                     }}
                                     className="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                                    placeholder="Adınızı girin"
                                 />
                             </div>
                             <div> {/* Şifre alanı her zaman görünür, otomatik doldurulur */}
@@ -1772,25 +1770,22 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
                                             <p className="text-gray-600 text-sm mb-2">{item.description}</p>
                                             <p className="text-gray-700 text-sm font-semibold">Kategori: {item.category || 'Belirtilmemiş'}</p>
                                         </div>
-                                        <div className="flex justify-between items-center mt-auto pt-3 border-t border-gray-100">
-                                            <span className="text-blue-600 text-lg font-bold">{item.price.toFixed(2)} TL</span>
-                                            <div className="flex space-x-2">
-                                                <button
-                                                    onClick={() => {
-                                                        setEditingItem(item);
-                                                        setNewItem({ ...item, price: item.price.toString() }); // Fiyatı string olarak ayarla
-                                                    }}
-                                                    className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded-md transition-colors duration-200 shadow-sm"
-                                                >
-                                                    Düzenle
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDeleteItem(item.id)}
-                                                    className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-md transition-colors duration-200 shadow-sm"
-                                                >
-                                                    Sil
-                                                </button>
-                                            </div>
+                                        <div className="flex space-x-2">
+                                            <button
+                                                onClick={() => {
+                                                    setEditingItem(item);
+                                                    setNewItem({ ...item, price: item.price.toString() }); // Fiyatı string olarak ayarla
+                                                }}
+                                                className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded-md transition-colors duration-200 shadow-sm"
+                                            >
+                                                Düzenle
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteItem(item.id)}
+                                                className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-md transition-colors duration-200 shadow-sm"
+                                            >
+                                                Sil
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
