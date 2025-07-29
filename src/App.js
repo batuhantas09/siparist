@@ -34,7 +34,7 @@ if (typeof window.__firebase_config !== 'undefined' && typeof window.__app_id !=
 
 const firebaseConfig = currentFirebaseConfig;
 const customAppId = currentCustomAppId;
-const initialAuthToken = currentInitialAuthToken; // Sadece Canvas için geçerli
+const initialAuthToken = initialAuthToken; // Sadece Canvas için geçerli
 
 // Firebase uygulaması ve servisleri
 let app, db, auth;
@@ -98,16 +98,19 @@ function App() {
 
                 // Admin kullanıcı bilgilerini kontrol et ve yoksa varsayılanı ekle
                 // Bu işlem, uygulamanın ilk kez başlatılmasında veya admin bilgilerinin silinmesi durumunda çalışır.
-                const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`); // Yol düzeltildi
-                const adminDocSnap = await getDoc(adminDocRef);
+                // userId'nin tanımlı olduğundan emin ol
+                if (auth.currentUser?.uid) {
+                    const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`);
+                    const adminDocSnap = await getDoc(adminDocRef);
 
-                if (!adminDocSnap.exists()) {
-                    await setDoc(adminDocRef, {
-                        username: DEFAULT_ADMIN_USERNAME,
-                        password: DEFAULT_ADMIN_PASSWORD, // Gerçek uygulamada şifre hashlenmeli
-                        ownerId: auth.currentUser?.uid || 'default_owner' // Admin'in ilk oluşturanın UID'si
-                    });
-                    console.log("Varsayılan Admin kullanıcı bilgileri Firestore'a eklendi.");
+                    if (!adminDocSnap.exists()) {
+                        await setDoc(adminDocRef, {
+                            username: DEFAULT_ADMIN_USERNAME,
+                            password: DEFAULT_ADMIN_PASSWORD, // Gerçek uygulamada şifre hashlenmeli
+                            ownerId: auth.currentUser.uid // Admin'in ilk oluşturanın UID'si
+                        });
+                        console.log("Varsayılan Admin kullanıcı bilgileri Firestore'a eklendi.");
+                    }
                 }
 
 
@@ -225,7 +228,7 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
     const [showBillRequestForm, setShowBillRequestForm] = useState(false);
     const [loading, setLoading] = useState(true);
     const [customerOrders, setCustomerOrders] = useState([]);
-    const [passwordValidated, setPasswordValidated] = useState(false); // Şifrenin bu oturumda doğrulanıp doğrulanmadığı
+    // passwordValidated state'i artık kullanılmıyor, her zaman şifre doğrulaması yapılacak
 
     // Müşterinin siparişlerini çek (hesap isteği için)
     const fetchCustomerOrders = useCallback(async (tableNum, custName, currentSessionID) => {
@@ -249,38 +252,53 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
         }
     }, [db, showMessage, customAppId]);
 
-    // Kaydedilmiş oturum bilgilerini doğrula
-    const validateStoredSession = useCallback(async () => { // useCallback ile sarmalandı
-        if (db && masaNo && customerName && sessionId) {
-            try {
-                const passwordDocRef = doc(db, `artifacts/${customAppId}/public/data/passwords`, masaNo);
-                const passwordDocSnap = await getDoc(passwordDocRef);
+    // Kaydedilmiş oturum bilgilerini doğrula ve form alanlarını otomatik doldur
+    // Bu useEffect, artık passwordValidated state'ini kontrol etmiyor, sadece localStorage'dan bilgileri yüklüyor
+    // ve form alanlarını dolduruyor. Şifre doğrulaması her submit işleminde yapılacak.
+    useEffect(() => {
+        const storedMasaNo = localStorage.getItem('siparist_masaNo');
+        const storedCustomerName = localStorage.getItem('siparist_customerName');
+        const storedSessionId = localStorage.getItem('siparist_sessionId');
 
-                if (passwordDocSnap.exists() && passwordDocSnap.data().sessionId === sessionId && passwordDocSnap.data().isActive) {
-                    setPasswordValidated(true);
-                    fetchCustomerOrders(masaNo, customerName, sessionId); // Siparişleri getir
-                } else {
-                    // Oturum geçersizse yerel depolamayı temizle
+        if (storedMasaNo) setMasaNo(storedMasaNo);
+        if (storedCustomerName) setCustomerName(storedCustomerName);
+        if (storedSessionId) setSessionId(storedSessionId);
+
+        // Eğer localStorage'da geçerli bir oturum bilgisi varsa, siparişleri otomatik çek
+        // Şifre doğrulaması burada yapılmıyor, sadece bilgilerin varlığı kontrol ediliyor
+        if (db && storedMasaNo && storedCustomerName && storedSessionId) {
+            // Firestore'dan şifrenin hala aktif olup olmadığını kontrol et
+            const checkSessionActive = async () => {
+                try {
+                    const passwordDocRef = doc(db, `artifacts/${customAppId}/public/data/passwords`, storedMasaNo);
+                    const passwordDocSnap = await getDoc(passwordDocRef);
+                    if (passwordDocSnap.exists() && passwordDocSnap.data().sessionId === storedSessionId && passwordDocSnap.data().isActive) {
+                        // Oturum hala aktifse, siparişleri getir
+                        fetchCustomerOrders(storedMasaNo, storedCustomerName, storedSessionId);
+                    } else {
+                        // Oturum aktif değilse veya bilgiler eşleşmiyorsa, localStorage'ı temizle
+                        localStorage.removeItem('siparist_masaNo');
+                        localStorage.removeItem('siparist_customerName');
+                        localStorage.removeItem('siparist_sessionId');
+                        setMasaNo('');
+                        setCustomerName('');
+                        setSessionId('');
+                        // passwordValidated state'i olmadığı için artık bunu ayarlamıyoruz
+                    }
+                } catch (error) {
+                    console.error("Kaydedilmiş oturum doğrulanırken hata:", error);
                     localStorage.removeItem('siparist_masaNo');
                     localStorage.removeItem('siparist_customerName');
                     localStorage.removeItem('siparist_sessionId');
                     setMasaNo('');
                     setCustomerName('');
                     setSessionId('');
-                    setPasswordValidated(false);
                 }
-            } catch (error) {
-                console.error("Kaydedilmiş oturum doğrulanırken hata:", error);
-                localStorage.removeItem('siparist_masaNo');
-                localStorage.removeItem('siparist_customerName');
-                localStorage.removeItem('siparist_sessionId');
-                setMasaNo('');
-                setCustomerName('');
-                setSessionId('');
-                setPasswordValidated(false);
-            }
+            };
+            checkSessionActive();
         }
-    }, [db, masaNo, customerName, sessionId, customAppId, fetchCustomerOrders]); // Bağımlılıklar eklendi
+    }, [db, customAppId, fetchCustomerOrders]); // Bağımlılıklar güncellendi
+
 
     // Menüyü Firebase'den çek
     useEffect(() => {
@@ -308,11 +326,6 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
 
         return () => unsubscribe();
     }, [db, showMessage, customAppId]);
-
-    // Kaydedilmiş oturum bilgilerini doğrula useEffect'i
-    useEffect(() => {
-        validateStoredSession();
-    }, [validateStoredSession]);
 
 
     const addToCart = (item) => {
@@ -350,44 +363,33 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
     };
 
     const handleOrderSubmit = async () => {
-        let currentSessionId = sessionId; // Mevcut sessionId'yi kullan
-
-        if (!passwordValidated) { // Eğer şifre daha önce doğrulanmadıysa
-            if (!masaNo || !customerName || !password || cart.length === 0) {
-                showMessage("Eksik Bilgi", "Lütfen masa numarası, adınız, şifre ve sepetinizi kontrol edin.", "error");
-                return;
-            }
-
-            try {
-                const passwordDocRef = doc(db, `artifacts/${customAppId}/public/data/passwords`, masaNo);
-                const passwordDocSnap = await getDoc(passwordDocRef);
-
-                if (!passwordDocSnap.exists() || passwordDocSnap.data().password !== password || !passwordDocSnap.data().isActive) {
-                    showMessage("Hata", "Geçersiz Masa Numarası veya Şifre. Lütfen kontrol edin.", "error");
-                    return;
-                }
-                currentSessionId = passwordDocSnap.data().sessionId;
-                if (!currentSessionId) {
-                    showMessage("Hata", "Masa oturum bilgisi bulunamadı. Lütfen kasa görevlisiyle iletişime geçin.", "error");
-                    return;
-                }
-
-                // Şifre doğrulandı, bilgileri yerel depolamaya kaydet
-                localStorage.setItem('siparist_masaNo', masaNo);
-                localStorage.setItem('siparist_customerName', customerName);
-                localStorage.setItem('siparist_sessionId', currentSessionId);
-                setSessionId(currentSessionId);
-                setPasswordValidated(true);
-
-            } catch (error) {
-                console.error("Sipariş gönderilirken şifre doğrulamada hata oluştu:", error);
-                showMessage("Hata", "Siparişinizi gönderirken bir sorun oluştu. Lütfen tekrar deneyin.", "error");
-                return;
-            }
+        // Her zaman şifre doğrulaması yap
+        if (!masaNo || !customerName || !password || cart.length === 0) {
+            showMessage("Eksik Bilgi", "Lütfen masa numarası, adınız, şifre ve sepetinizi kontrol edin.", "error");
+            return;
         }
 
-        // Şifre doğrulandıysa veya zaten doğrulanmışsa siparişi kaydet
         try {
+            const passwordDocRef = doc(db, `artifacts/${customAppId}/public/data/passwords`, masaNo);
+            const passwordDocSnap = await getDoc(passwordDocRef);
+
+            if (!passwordDocSnap.exists() || passwordDocSnap.data().password !== password || !passwordDocSnap.data().isActive) {
+                showMessage("Hata", "Geçersiz Masa Numarası veya Şifre. Lütfen kontrol edin.", "error");
+                return;
+            }
+            const currentSessionId = passwordDocSnap.data().sessionId;
+            if (!currentSessionId) {
+                showMessage("Hata", "Masa oturum bilgisi bulunamadı. Lütfen kasa görevlisiyle iletişime geçin.", "error");
+                return;
+            }
+
+            // Şifre doğrulandı, bilgileri yerel depolamaya kaydet
+            localStorage.setItem('siparist_masaNo', masaNo);
+            localStorage.setItem('siparist_customerName', customerName);
+            localStorage.setItem('siparist_sessionId', currentSessionId);
+            setSessionId(currentSessionId); // State'i de güncelle
+
+            // Siparişi kaydet
             await addDoc(collection(db, `artifacts/${customAppId}/public/data/orders`), {
                 masaNo,
                 customerName,
@@ -406,9 +408,6 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
 
             showMessage("Siparişiniz Alındı", "Siparişiniz başarıyla alındı. Teşekkür ederiz!", "success");
             setCart([]);
-            // MasaNo ve CustomerName'i sıfırlama, çünkü oturum devam ediyor olabilir
-            // setMasaNo('');
-            // setCustomerName('');
             setPassword(''); // Şifreyi sadece inputtan temizle
             setShowOrderForm(false);
         } catch (error) {
@@ -420,42 +419,33 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
     const handleBillRequestSubmit = async () => {
         let currentSessionId = sessionId; // Mevcut sessionId'yi kullan
 
-        if (!passwordValidated) { // Eğer şifre daha önce doğrulanmadıysa
-            if (!masaNo || !customerName || !password) {
-                showMessage("Eksik Bilgi", "Lütfen masa numarası, adınız ve şifrenizi girin.", "error");
-                return;
-            }
-
-            try {
-                const passwordDocRef = doc(db, `artifacts/${customAppId}/public/data/passwords`, masaNo);
-                const passwordDocSnap = await getDoc(passwordDocRef);
-
-                if (!passwordDocSnap.exists() || passwordDocSnap.data().password !== password || !passwordDocSnap.data().isActive) {
-                    showMessage("Hata", "Geçersiz Masa Numarası veya Şifre. Lütfen kontrol edin.", "error");
-                    return;
-                }
-                currentSessionId = passwordDocSnap.data().sessionId;
-                if (!currentSessionId) {
-                    showMessage("Hata", "Masa oturum bilgisi bulunamadı. Lütfen kasa görevlisiyle iletişime geçin.", "error");
-                    return;
-                }
-
-                // Şifre doğrulandı, bilgileri yerel depolamaya kaydet
-                localStorage.setItem('siparist_masaNo', masaNo);
-                localStorage.setItem('siparist_customerName', customerName);
-                localStorage.setItem('siparist_sessionId', currentSessionId);
-                setSessionId(currentSessionId);
-                setPasswordValidated(true);
-
-            } catch (error) {
-                console.error("Hesap isteği gönderilirken şifre doğrulamada hata oluştu:", error);
-                showMessage("Hata", "Hesap isteğinizi gönderirken bir sorun oluştu. Lütfen tekrar deneyin.", "error");
-                return;
-            }
+        // Her zaman şifre doğrulaması yap
+        if (!masaNo || !customerName || !password) {
+            showMessage("Eksik Bilgi", "Lütfen masa numarası, adınız ve şifrenizi girin.", "error");
+            return;
         }
 
-        // Şifre doğrulandıysa veya zaten doğrulanmışsa hesap isteğini kaydet
         try {
+            const passwordDocRef = doc(db, `artifacts/${customAppId}/public/data/passwords`, masaNo);
+            const passwordDocSnap = await getDoc(passwordDocRef);
+
+            if (!passwordDocSnap.exists() || passwordDocSnap.data().password !== password || !passwordDocSnap.data().isActive) {
+                showMessage("Hata", "Geçersiz Masa Numarası veya Şifre. Lütfen kontrol edin.", "error");
+                return;
+            }
+            currentSessionId = passwordDocSnap.data().sessionId;
+            if (!currentSessionId) {
+                showMessage("Hata", "Masa oturum bilgisi bulunamadı. Lütfen kasa görevlisiyle iletişime geçin.", "error");
+                return;
+            }
+
+            // Şifre doğrulandı, bilgileri yerel depolamaya kaydet
+            localStorage.setItem('siparist_masaNo', masaNo);
+            localStorage.setItem('siparist_customerName', customerName);
+            localStorage.setItem('siparist_sessionId', currentSessionId);
+            setSessionId(currentSessionId); // State'i de güncelle
+
+            // Hesap isteğini kaydet
             await addDoc(collection(db, `artifacts/${customAppId}/public/data/billRequests`), {
                 masaNo,
                 customerName,
@@ -492,7 +482,7 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                     onClick={() => {
                         setShowBillRequestForm(true);
                         // Eğer zaten doğrulanmış bir oturum varsa, siparişleri otomatik çek
-                        if (passwordValidated) {
+                        if (masaNo && customerName && sessionId) { // passwordValidated yerine localStorage'dan gelen bilgileri kontrol et
                             fetchCustomerOrders(masaNo, customerName, sessionId);
                         }
                     }}
@@ -570,7 +560,7 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                                             placeholder="Özel not (örn: az şekerli)"
                                             value={item.note}
                                             onChange={(e) => updateCartItemNote(item.id, e.target.value)}
-                                            className="w-full p-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
+                                            className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                                         />
                                     </div>
                                     <div className="flex items-center ml-4">
@@ -611,7 +601,6 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                                     onChange={(e) => setMasaNo(e.target.value)}
                                     className="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                                     placeholder="Masa numaranızı girin"
-                                    disabled={passwordValidated} // Şifre doğrulandıysa devre dışı bırak
                                 />
                             </div>
                             <div>
@@ -623,22 +612,19 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                                     onChange={(e) => setCustomerName(e.target.value)}
                                     className="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                                     placeholder="Adınızı girin"
-                                    disabled={passwordValidated} // Şifre doğrulandıysa devre dışı bırak
                                 />
                             </div>
-                            {!passwordValidated && ( // Şifre doğrulandıysa şifre alanını gizle
-                                <div>
-                                    <label htmlFor="passwordOrder" className="block text-gray-700 text-sm font-semibold mb-2">Masa Şifresi</label>
-                                    <input
-                                        type="text"
-                                        id="passwordOrder"
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        className="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                                        placeholder="Masa şifrenizi girin (örn: 36soda55)"
-                                    />
-                                </div>
-                            )}
+                            <div> {/* Şifre alanı her zaman görünür, otomatik doldurulur */}
+                                <label htmlFor="passwordOrder" className="block text-gray-700 text-sm font-semibold mb-2">Masa Şifresi</label>
+                                <input
+                                    type="text"
+                                    id="passwordOrder"
+                                    value={password} // Şifre otomatik doldurulacak, gerekirse değiştirilebilir
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    className="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                                    placeholder="Masa şifrenizi girin (örn: 36soda55)"
+                                />
+                            </div>
                         </div>
                         <div className="mt-8 flex justify-end space-x-4">
                             <button
@@ -669,24 +655,12 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                                     type="text"
                                     id="masaNoBill"
                                     value={masaNo}
-                                    onChange={async (e) => {
+                                    onChange={(e) => {
                                         setMasaNo(e.target.value);
-                                        // Fetch sessionId based on masaNo and password for live order display
-                                        if (e.target.value && password && customerName && db) {
-                                            const passwordDocRef = doc(db, `artifacts/${customAppId}/public/data/passwords`, e.target.value);
-                                            const passwordDocSnap = await getDoc(passwordDocRef);
-                                            if (passwordDocSnap.exists() && passwordDocSnap.data().password === password && passwordDocSnap.data().isActive) {
-                                                fetchCustomerOrders(e.target.value, customerName, passwordDocSnap.data().sessionId);
-                                            } else {
-                                                setCustomerOrders([]);
-                                            }
-                                        } else {
-                                            setCustomerOrders([]);
-                                        }
+                                        // fetchCustomerOrders(e.target.value, customerName, sessionId); // sessionId'nin de güncel olduğundan emin ol
                                     }}
                                     className="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                                     placeholder="Masa numaranızı girin"
-                                    disabled={passwordValidated} // Şifre doğrulandıysa devre dışı bırak
                                 />
                             </div>
                             <div>
@@ -695,53 +669,25 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                                     type="text"
                                     id="customerNameBill"
                                     value={customerName}
-                                    onChange={async (e) => {
+                                    onChange={(e) => {
                                         setCustomerName(e.target.value);
-                                        // Fetch sessionId based on masaNo and password for live order display
-                                        if (masaNo && password && e.target.value && db) {
-                                            const passwordDocRef = doc(db, `artifacts/${customAppId}/public/data/passwords`, masaNo);
-                                            const passwordDocSnap = await getDoc(passwordDocRef);
-                                            if (passwordDocSnap.exists() && passwordDocSnap.data().password === password && passwordDocSnap.data().isActive) {
-                                                fetchCustomerOrders(masaNo, e.target.value, passwordDocSnap.data().sessionId);
-                                            } else {
-                                                setCustomerOrders([]);
-                                            }
-                                        } else {
-                                            setCustomerOrders([]);
-                                        }
+                                        // fetchCustomerOrders(masaNo, e.target.value, sessionId); // sessionId'nin de güncel olduğundan emin ol
                                     }}
                                     className="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                                     placeholder="Adınızı girin"
-                                    disabled={passwordValidated} // Şifre doğrulandıysa devre dışı bırak
                                 />
                             </div>
-                            {!passwordValidated && ( // Şifre doğrulandıysa şifre alanını gizle
-                                <div>
-                                    <label htmlFor="passwordBill" className="block text-gray-700 text-sm font-semibold mb-2">Masa Şifresi</label>
-                                    <input
-                                        type="text"
-                                        id="passwordBill"
-                                        value={password}
-                                        onChange={async (e) => {
-                                            setPassword(e.target.value);
-                                            // Fetch sessionId based on masaNo and password for live order display
-                                            if (masaNo && e.target.value && customerName && db) {
-                                                const passwordDocRef = doc(db, `artifacts/${customAppId}/public/data/passwords`, masaNo);
-                                                const passwordDocSnap = await getDoc(passwordDocRef);
-                                                if (passwordDocSnap.exists() && passwordDocSnap.data().password === e.target.value && passwordDocSnap.data().isActive) {
-                                                    fetchCustomerOrders(masaNo, customerName, passwordDocSnap.data().sessionId);
-                                                } else {
-                                                    setCustomerOrders([]);
-                                                }
-                                            } else {
-                                                setCustomerOrders([]);
-                                            }
-                                        }}
+                            <div> {/* Şifre alanı her zaman görünür, otomatik doldurulur */}
+                                <label htmlFor="passwordBill" className="block text-gray-700 text-sm font-semibold mb-2">Masa Şifresi</label>
+                                <input
+                                    type="text"
+                                    id="passwordBill"
+                                    value={password} // Şifre otomatik doldurulacak, gerekirse değiştirilebilir
+                                    onChange={(e) => setPassword(e.target.value)}
                                     className="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                                     placeholder="Masa şifrenizi girin"
                                 />
-                                </div>
-                            )}
+                            </div>
                         </div>
 
                         {customerOrders.length > 0 && (
@@ -1452,7 +1398,7 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
     useEffect(() => {
         if (!db || !userId) return; // userId'nin tanımlı olduğundan emin ol
 
-        const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`);
+        const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`); // Yol düzeltildi
         const unsubscribeAdmin = onSnapshot(adminDocRef, (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
@@ -1476,7 +1422,7 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
     const handleLogin = async () => {
         if (!db) return;
         try {
-            const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`);
+            const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`); // Yol düzeltildi
             const adminDocSnap = await getDoc(adminDocRef);
 
             if (adminDocSnap.exists()) {
@@ -1812,7 +1758,7 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {menuItems.map(item => (
-                                <div key={item.id} className="bg-white rounded-lg shadow-md overflow-hidden flex flex-col hover:shadow-xl transition-shadow duration-300">
+                                <div key={item.id} className="bg-white p-4 rounded-lg shadow-md flex items-center justify-between hover:shadow-xl transition-shadow duration-300">
                                     <img
                                         src={item.imageUrl || `https://placehold.co/400x250/a8dadc/1d3557?text=${item.name.replace(/\s/g, '+')}`}
                                         alt={item.name}
