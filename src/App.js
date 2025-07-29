@@ -227,6 +227,61 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
     const [customerOrders, setCustomerOrders] = useState([]);
     const [passwordValidated, setPasswordValidated] = useState(false); // Şifrenin bu oturumda doğrulanıp doğrulanmadığı
 
+    // Müşterinin siparişlerini çek (hesap isteği için)
+    const fetchCustomerOrders = useCallback(async (tableNum, custName, currentSessionID) => {
+        if (!db || !tableNum || !custName || !currentSessionID) {
+            setCustomerOrders([]); // Clear orders if not all info is present
+            return;
+        }
+        try {
+            const ordersRef = collection(db, `artifacts/${customAppId}/public/data/orders`);
+            const q = query(ordersRef, 
+                where("masaNo", "==", tableNum), 
+                where("customerName", "==", custName),
+                where("sessionId", "==", currentSessionID) // Filter by sessionId
+            );
+            const snapshot = await getDocs(q);
+            const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setCustomerOrders(ordersData);
+        } catch (error) {
+            console.error("Müşteri siparişleri çekilirken hata oluştu:", error);
+            showMessage("Hata", "Siparişleriniz yüklenirken bir sorun oluştu.", "error");
+        }
+    }, [db, showMessage, customAppId]);
+
+    // Kaydedilmiş oturum bilgilerini doğrula
+    const validateStoredSession = useCallback(async () => { // useCallback ile sarmalandı
+        if (db && masaNo && customerName && sessionId) {
+            try {
+                const passwordDocRef = doc(db, `artifacts/${customAppId}/public/data/passwords`, masaNo);
+                const passwordDocSnap = await getDoc(passwordDocRef);
+
+                if (passwordDocSnap.exists() && passwordDocSnap.data().sessionId === sessionId && passwordDocSnap.data().isActive) {
+                    setPasswordValidated(true);
+                    fetchCustomerOrders(masaNo, customerName, sessionId); // Siparişleri getir
+                } else {
+                    // Oturum geçersizse yerel depolamayı temizle
+                    localStorage.removeItem('siparist_masaNo');
+                    localStorage.removeItem('siparist_customerName');
+                    localStorage.removeItem('siparist_sessionId');
+                    setMasaNo('');
+                    setCustomerName('');
+                    setSessionId('');
+                    setPasswordValidated(false);
+                }
+            } catch (error) {
+                console.error("Kaydedilmiş oturum doğrulanırken hata:", error);
+                localStorage.removeItem('siparist_masaNo');
+                localStorage.removeItem('siparist_customerName');
+                localStorage.removeItem('siparist_sessionId');
+                setMasaNo('');
+                setCustomerName('');
+                setSessionId('');
+                setPasswordValidated(false);
+            }
+        }
+    }, [db, masaNo, customerName, sessionId, customAppId, fetchCustomerOrders]); // Bağımlılıklar eklendi
+
     // Menüyü Firebase'den çek
     useEffect(() => {
         if (!db) return;
@@ -254,63 +309,10 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
         return () => unsubscribe();
     }, [db, showMessage, customAppId]);
 
-    // Müşterinin siparişlerini çek (hesap isteği için)
-    const fetchCustomerOrders = useCallback(async (tableNum, custName, currentSessionID) => {
-        if (!db || !tableNum || !custName || !currentSessionID) {
-            setCustomerOrders([]); // Clear orders if not all info is present
-            return;
-        }
-        try {
-            const ordersRef = collection(db, `artifacts/${customAppId}/public/data/orders`);
-            const q = query(ordersRef, 
-                where("masaNo", "==", tableNum), 
-                where("customerName", "==", custName),
-                where("sessionId", "==", currentSessionID) // Filter by sessionId
-            );
-            const snapshot = await getDocs(q);
-            const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setCustomerOrders(ordersData);
-        } catch (error) {
-            console.error("Müşteri siparişleri çekilirken hata oluştu:", error);
-            showMessage("Hata", "Siparişleriniz yüklenirken bir sorun oluştu.", "error");
-        }
-    }, [db, showMessage, customAppId]);
-
-    // Kaydedilmiş oturum bilgilerini doğrula
+    // Kaydedilmiş oturum bilgilerini doğrula useEffect'i
     useEffect(() => {
-        const validateStoredSession = async () => {
-            if (db && masaNo && customerName && sessionId) {
-                try {
-                    const passwordDocRef = doc(db, `artifacts/${customAppId}/public/data/passwords`, masaNo);
-                    const passwordDocSnap = await getDoc(passwordDocRef);
-
-                    if (passwordDocSnap.exists() && passwordDocSnap.data().sessionId === sessionId && passwordDocSnap.data().isActive) {
-                        setPasswordValidated(true);
-                        fetchCustomerOrders(masaNo, customerName, sessionId); // Siparişleri getir
-                    } else {
-                        // Oturum geçersizse yerel depolamayı temizle
-                        localStorage.removeItem('siparist_masaNo');
-                        localStorage.removeItem('siparist_customerName');
-                        localStorage.removeItem('siparist_sessionId');
-                        setMasaNo('');
-                        setCustomerName('');
-                        setSessionId('');
-                        setPasswordValidated(false);
-                    }
-                } catch (error) {
-                    console.error("Kaydedilmiş oturum doğrulanırken hata:", error);
-                    localStorage.removeItem('siparist_masaNo');
-                    localStorage.removeItem('siparist_customerName');
-                    localStorage.removeItem('siparist_sessionId');
-                    setMasaNo('');
-                    setCustomerName('');
-                    setSessionId('');
-                    setPasswordValidated(false);
-                }
-            }
-        };
         validateStoredSession();
-    }, [db, masaNo, customerName, sessionId, customAppId, fetchCustomerOrders]);
+    }, [validateStoredSession]);
 
 
     const addToCart = (item) => {
@@ -541,7 +543,7 @@ function CustomerPanel({ db, userId, showMessage, customAppId }) {
                         </div>
                     </div>
                 ))
-            )}
+    )}
 
             <div className="mt-10 border-t-2 border-gray-200 pt-8">
                 <h2 className="text-3xl font-bold text-gray-800 mb-6 flex items-center">
@@ -1348,7 +1350,7 @@ function CashierPanel({ db, userId, showMessage, customAppId }) {
                         <Lock className="mr-2 text-blue-600" /> Aktif Masa Şifreleri
                     </h3>
                     {activePasswords.length === 0 ? (
-                        <p className="text-gray-600 text-lg text-center py-10">Aktif masa şifresi bulunmamaktadır.</p>
+                        <p className="text-gray-600 text-lg col-span-full text-center py-10">Aktif masa şifresi bulunmamaktadır.</p>
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {activePasswords.map(pw => (
@@ -1372,7 +1374,7 @@ function CashierPanel({ db, userId, showMessage, customAppId }) {
                         <Bell className="mr-2 text-blue-600" /> Hesap İstekleri
                     </h3>
                     {billRequests.length === 0 ? (
-                        <p className="text-gray-600 text-lg text-center py-10">Bekleyen hesap isteği bulunmamaktadır.</p>
+                        <p className="text-gray-600 text-lg col-span-full text-center py-10">Bekleyen hesap isteği bulunmamaktadır.</p>
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {billRequests.map(request => (
@@ -1448,9 +1450,9 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
 
     // Admin kullanıcı bilgilerini Firestore'dan çek
     useEffect(() => {
-        if (!db || !loggedIn) return;
+        if (!db || !userId) return; // userId'nin tanımlı olduğundan emin ol
 
-        const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`); // Yol düzeltildi
+        const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`);
         const unsubscribeAdmin = onSnapshot(adminDocRef, (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
@@ -1467,14 +1469,14 @@ function AdminPanel({ db, userId, showMessage, customAppId }) {
         });
 
         return () => unsubscribeAdmin();
-    }, [db, loggedIn, showMessage, customAppId]);
+    }, [db, userId, showMessage, customAppId]); // userId bağımlılık olarak eklendi
 
 
     // Admin girişi
     const handleLogin = async () => {
         if (!db) return;
         try {
-            const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`); // Yol düzeltildi
+            const adminDocRef = doc(db, `artifacts/${customAppId}/admin_settings/adminUser`);
             const adminDocSnap = await getDoc(adminDocRef);
 
             if (adminDocSnap.exists()) {
